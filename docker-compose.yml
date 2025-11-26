@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # CPU-only service
+  vieneu-tts-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cpu
+    container_name: vieneu-tts-cpu
+    ports:
+      - "7860:7860"
+    volumes:
+      # Mount sample voices (required for preset voices)
+      - ./sample:/app/sample:ro
+      # Mount utils (required for text processing)
+      - ./utils:/app/utils:ro
+      # Mount output directory for generated audio
+      - ./output_audio:/app/output_audio
+      # Mount models cache directory (for Hugging Face models)
+      - ./models:/app/models
+      - ./cache:/root/.cache/huggingface
+      # Mount config directory (for custom configurations)
+      - ./config:/app/config
+      # Mount custom audio files (optional)
+      - ./custom_audio:/app/custom_audio
+    environment:
+      - DEVICE=cpu
+      - PYTHONPATH=/app
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      - TORCH_HOME=/root/.cache/torch
+    restart: unless-stopped
+    profiles:
+      - cpu
+
+  # GPU service (requires NVIDIA Docker runtime)
+  vieneu-tts-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: gpu
+    container_name: vieneu-tts-gpu
+    ports:
+      - "7861:7860"
+    volumes:
+      # Mount sample voices (required for preset voices)
+      - ./sample:/app/sample:ro
+      # Mount utils (required for text processing)
+      - ./utils:/app/utils:ro
+      # Mount output directory for generated audio
+      - ./output_audio:/app/output_audio
+      # Mount models cache directory (for Hugging Face models)
+      - ./models:/app/models
+      - ./cache:/root/.cache/huggingface
+      # Mount config directory (for custom configurations)
+      - ./config:/app/config
+      # Mount custom audio files (optional)
+      - ./custom_audio:/app/custom_audio
+    environment:
+      - DEVICE=cuda
+      - PYTHONPATH=/app
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      - TORCH_HOME=/root/.cache/torch
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    profiles:
+      - gpu
+
+  # Development service with live code mounting
+  vieneu-tts-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cpu
+    container_name: vieneu-tts-dev
+    ports:
+      - "7862:7860"
+    volumes:
+      # Mount entire source code for development
+      - .:/app
+      # Mount models cache directory
+      - ./models:/app/models
+      - ./cache:/root/.cache/huggingface
+      # Mount config directory
+      - ./config:/app/config
+      # Mount custom audio files
+      - ./custom_audio:/app/custom_audio
+    environment:
+      - DEVICE=cpu
+      - PYTHONPATH=/app
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      - TORCH_HOME=/root/.cache/torch
+      - GRADIO_SERVER_NAME=0.0.0.0
+    command: python gradio_app.py
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # CLI service for batch processing
+  vieneu-tts-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cpu
+    container_name: vieneu-tts-cli
+    volumes:
+      # Mount sample voices
+      - ./sample:/app/sample:ro
+      # Mount utils
+      - ./utils:/app/utils:ro
+      # Mount output directory
+      - ./output_audio:/app/output_audio
+      # Mount models cache
+      - ./models:/app/models
+      - ./cache:/root/.cache/huggingface
+      # Mount config directory
+      - ./config:/app/config
+      # Mount input files directory
+      - ./input:/app/input
+    environment:
+      - DEVICE=cpu
+      - PYTHONPATH=/app
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      - TORCH_HOME=/root/.cache/torch
+    command: python main.py
+    profiles:
+      - cli
+
+# Named volumes for persistent data
+volumes:
+  models_cache:
+    driver: local
+  huggingface_cache:
+    driver: local
+
+# Networks
+networks:
+  default:
+    name: vieneu-tts-network
