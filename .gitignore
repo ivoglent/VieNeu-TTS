@@ -9,3 +9,5 @@ wheels/
 # Virtual environments
 .venv
 output_audio/
+.env
+.idea

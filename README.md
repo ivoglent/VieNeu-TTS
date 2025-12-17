@@ -13,54 +13,13 @@ Trained on ~1000 hours of high-quality Vietnamese speech, this model represents 
 - **Code-switching support**: Seamless transitions between Vietnamese and English
 - **Better voice cloning**: Higher fidelity and speaker consistency
 - **Real-time synthesis**: 24 kHz waveform generation on CPU or GPU
+- **Multiple model formats**: Support for PyTorch, GGUF Q4/Q8 (CPU optimized), and ONNX codec
 
-Fine-tuned from **NeuTTS Air**, VieNeu-TTS-1000h delivers production-ready speech synthesis fully offline.
+VieNeu-TTS-1000h delivers production-ready speech synthesis fully offline.
 
 **Author:** Phạm Nguyễn Ngọc Bảo
-> 📢 Sắp ra mắt: Hỗ trợ GGUF cho CPU!
-> Chúng tôi đang gấp rút hoàn thiện phiên bản hỗ trợ GGUF để cho phép mô hình chạy hiệu quả trên CPU mà không cần GPU mạnh.
-> Phiên bản này dự kiến sẽ được ra mắt sớm, trong 1-2 tuần tới. Hãy theo dõi kho lưu trữ GitHub để nhận thông báo mới nhất!
 
----
-
-## ✨ Features
-
-- 🎙️ High-quality Vietnamese speech at 24 kHz
-- 🚀 Instant voice cloning using a short reference clip
-- 💻 Fully offline inference (no internet required)
-- 🎯 Multiple curated reference voices (Southern accent, male & female)
-- ⚡ Real-time or faster-than-real-time synthesis on CPU/GPU
-- 🖥️ Ready-to-use Python API, CLI scripts, and a Gradio UI
-
----
-
-## 💝 Support This Project
-
-**VieNeu-TTS** is a free, open-source project. However, training high-quality TTS models on **1000+ hours of speech data** requires significant computational resources.
-
-If you find this project useful, please consider supporting its development:
-
-<div align="center">
-
-[![Buy Me a Coffee](https://img.shields.io/badge/☕_Buy_Me_a_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/pnnbao)
-
-</div>
-
-**Your support helps:**
-
-- 💰 **GPU Training Costs**: Training on 1000+ hours costs thousands of dollars in compute
-- 🚀 **New Features**: Emotion control, speaking styles, GGUF quantization
-- 📊 **Dataset Expansion**: Collecting more diverse Vietnamese voices (North, Central, South)
-- 🎯 **Quality Improvements**: Better pronunciation, naturalness, and voice cloning fidelity
-- 🌍 **Bilingual Support**: Vietnamese + English code-switching capabilities
-- 🔧 **Maintenance**: Bug fixes, updates, and community support
-
-<div align="center">
-
-*Every contribution, big or small, makes a real difference!*  
-*Thank you for supporting Vietnamese AI development!* 🇻🇳🙏
-
-</div>
+[<img width="600" height="595" alt="VieNeu-TTS" src="https://github.com/user-attachments/assets/6b32df9d-7e2e-474f-94c8-43d6fa586d15" />](https://github.com/user-attachments/assets/6b32df9d-7e2e-474f-94c8-43d6fa586d15)
 
 ---
 
@@ -68,17 +27,38 @@ If you find this project useful, please consider supporting its development:
 
 - **Backbone:** Qwen 0.5B LLM (chat template)
 - **Audio codec:** NeuCodec (torch implementation; ONNX & quantized variants supported)
-- **Context window:** 2 048 tokens shared by prompt text and speech tokens
+- **Context window:** 2 048 tokens shared by prompt text and speech tokens
 - **Output watermark:** Enabled by default
 - **Training data:**  
   - [VieNeu-TTS-1000h](https://huggingface.co/datasets/pnnbao-ump/VieNeu-TTS-1000h) — 443,641 curated Vietnamese samples  
 
+### Model Variants
+
+| Model | Format | Device | Quality | Speed | Streaming |
+|-------|--------|--------|---------|-------|-----------|
+| VieNeu-TTS | PyTorch | GPU/CPU | ⭐⭐⭐⭐⭐ | Very Fast with lmdeploy | ❌ |
+| VieNeu-TTS-q8-gguf | GGUF Q8 | CPU/GPU | ⭐⭐⭐⭐ | Fast | ✅ |
+| VieNeu-TTS-q4-gguf | GGUF Q4 | CPU/GPU | ⭐⭐⭐ | Very Fast | ✅ |
+
+**Recommendations:**
+- **GPU users**: Use `VieNeu-TTS` (PyTorch) for best quality
+- **CPU users**: Use `VieNeu-TTS-q4-gguf` for fastest inference or `VieNeu-TTS-q8-gguf` for better quality
+- **Streaming**: Only GGUF models support streaming inference
+
+---
+
+## ✅ Todo & Status
+
+- [x] Publish safetensor artifacts
+- [x] Release GGUF Q4 / Q8 models
+- [x] Release datasets (1000h and 140h)
+- [x] Enable streaming on GPU
+- [x] Provide Dockerized setup
+- [ ] Release fine-tuning code
+
 ---
 
 ## 🏁 Getting Started
-
-> **📺 Hướng dẫn cài đặt bằng tiếng Việt**: Xem video chi tiết tại [Facebook Reel](https://www.facebook.com/reel/1362972618623766)  
-> **🎙️ Muốn VieNeu-TTS nói bằng giọng của bạn?** [Xem hướng dẫn](https://www.facebook.com/100027984306273/videos/1398774845170103)
 
 ### 1. Clone the repository
 
@@ -111,11 +91,63 @@ paru -S aur/espeak-ng
 - If the phonemizer cannot find the library, set `PHONEMIZER_ESPEAK_LIBRARY` to the `.dylib` path.
 - Validate installation with: `echo 'test' | espeak-ng -x -q --ipa -v vi`
 
-### 3. Install Python dependencies (Python ≥ 3.11)
+### 3. Install Python dependencies (Python ≥ 3.12)
 
 ```bash
 uv sync
 ```
+
+**Optional dependencies:**
+
+- **For GGUF models with CPU:** Install `llama-cpp-python` with CPU support:
+  ```bash
+  uv pip install llama-cpp-python==0.3.2 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu/
+  ```
+
+- **For GGUF models with GPU:** Install `llama-cpp-python` with CUDA support:
+  ```bash
+  CMAKE_ARGS="-DLLAMA_CUBLAS=on" uv pip install llama-cpp-python --force-reinstall --no-cache-dir
+  ```
+  
+- **For LMDeploy optimizations (GPU only):** Install `lmdeploy` for faster GPU inference:
+  ```bash
+  uv pip install lmdeploy
+  uv pip install triton
+  ```
+  For Windows:
+  ```bash
+  uv pip install lmdeploy
+  uv pip install triton-windows 
+  ```
+  This enables batch processing, Triton compilation, and KV cache quantization in the Gradio app.
+
+---
+
+## 🐋 Docker Deployment
+
+For a quick start or production deployment without manually installing dependencies, use Docker.
+
+### Quick Start
+
+Copy .env.example to .env
+
+```
+cp .env.example .env
+```
+
+Build and start container
+
+```bash
+# Run with CPU
+docker compose --profile cpu up
+
+# Run with GPU (requires NVIDIA Container Toolkit)
+docker compose --profile gpu up
+```
+
+Access the Web UI at `http://localhost:7860`.
+
+For detailed deployment instructions, including production setup, see [docs/Deploy.md](docs/Deploy.md).
 
 ---
 
@@ -126,127 +158,41 @@ VieNeu-TTS/
 ├── examples/
 │   ├── infer_long_text.py     # CLI for long-form synthesis (chunked)
 │   └── sample_long_text.txt   # Example paragraph for testing
-├── gradio_app.py              # Local Gradio demo
+├── gradio_app.py              # Local Gradio web demo with LMDeploy support
 ├── main.py                    # Basic batch inference script
+├── config.yaml                # Configuration for models, codecs, and voices
 ├── output_audio/              # Generated audio (created when running scripts)
-├── sample/                    # Reference voices (audio + transcript pairs)
-│   ├── Bình (nam miền Bắc).wav/txt
-│   ├── Đoan (nữ miền Nam).wav/txt
-│   ├── Dung (nữ miền Nam).wav/txt
-│   ├── Hương (nữ miền Bắc).wav/txt
-│   ├── Ly (nữ miền Bắc).wav/txt
-│   ├── Ngọc (nữ miền Bắc).wav/txt
-│   ├── Nguyên (nam miền Nam).wav/txt
-│   ├── Sơn (nam miền Nam).wav/txt
-│   ├── Tuyên (nam miền Bắc).wav/txt
-│   └── Vĩnh (nam miền Nam).wav/txt
+├── sample/                    # Reference voices (audio + transcript + codes)
+│   ├── Bình (nam miền Bắc).wav/txt/pt
+│   ├── Đoan (nữ miền Nam).wav/txt/pt
+│   ├── Dung (nữ miền Nam).wav/txt/pt
+│   ├── Hương (nữ miền Bắc).wav/txt/pt
+│   ├── Ly (nữ miền Bắc).wav/txt/pt
+│   ├── Ngọc (nữ miền Bắc).wav/txt/pt
+│   ├── Nguyên (nam miền Nam).wav/txt/pt
+│   ├── Sơn (nam miền Nam).wav/txt/pt
+│   ├── Tuyên (nam miền Bắc).wav/txt/pt
+│   └── Vĩnh (nam miền Nam).wav/txt/pt
 ├── utils/
 │   ├── __init__.py
+│   ├── core_utils.py          # Text chunking utilities
 │   ├── normalize_text.py      # Vietnamese text normalization pipeline
 │   ├── phonemize_text.py      # Text to phoneme conversion
 │   └── phoneme_dict.json      # Phoneme dictionary
 ├── vieneu_tts/
-│   ├── __init__.py
-│   └── vieneu_tts.py          # Core VieNeuTTS implementation
+│   ├── __init__.py            # Exports VieNeuTTS and FastVieNeuTTS
+│   └── vieneu_tts.py          # Core VieNeuTTS implementation (VieNeuTTS & FastVieNeuTTS)
 ├── README.md
-├── requirements.txt
-└── pyproject.toml
+├── requirements.txt           # Basic dependencies (legacy)
+├── pyproject.toml             # Project configuration with full dependencies (UV)
+└── uv.lock                    # UV lock file for dependency management
 ```
 
 ---
 
 ## 🚀 Quickstart
 
-## Quick Usage (Python)
-
-```python
-from vieneu_tts import VieNeuTTS
-import soundfile as sf
-import torch
-import os
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-input_texts = [
-    "Các khóa học trực tuyến đang giúp học sinh tiếp cận kiến thức mọi lúc mọi nơi. Giáo viên sử dụng video, bài tập tương tác và thảo luận trực tuyến để nâng cao hiệu quả học tập.",
-
-    "Các nghiên cứu về bệnh Alzheimer cho thấy tác dụng tích cực của các bài tập trí não và chế độ dinh dưỡng lành mạnh, giúp giảm tốc độ suy giảm trí nhớ ở người cao tuổi.",
-
-    "Một tiểu thuyết trinh thám hiện đại dẫn dắt độc giả qua những tình tiết phức tạp, bí ẩn, kết hợp yếu tố tâm lý sâu sắc khiến người đọc luôn hồi hộp theo dõi diễn biến câu chuyện.",
-
-    "Các nhà khoa học nghiên cứu gen người phát hiện những đột biến mới liên quan đến bệnh di truyền. Điều này giúp nâng cao khả năng chẩn đoán và điều trị.",
-]
-
-output_dir = "./output_audio"
-os.makedirs(output_dir, exist_ok=True)
-
-def main(backbone="pnnbao-ump/VieNeu-TTS", codec="neuphonic/neucodec"):
-    """
-    In the sample directory, there are wav files and txt files with matching names.
-    These are pre-prepared reference files for testing with Vietnamese names:
-    - Bình (nam miền Bắc) - Male, North accent
-    - Tuyên (nam miền Bắc) - Male, North accent
-    - Nguyên (nam miền Nam) - Male, South accent
-    - Sơn (nam miền Nam) - Male, South accent
-    - Vĩnh (nam miền Nam) - Male, South accent
-    - Hương (nữ miền Bắc) - Female, North accent
-    - Ly (nữ miền Bắc) - Female, North accent
-    - Ngọc (nữ miền Bắc) - Female, North accent
-    - Đoan (nữ miền Nam) - Female, South accent
-    - Dung (nữ miền Nam) - Female, South accent
-    
-    Note: The model can clone any voice you provide (with corresponding text).
-    However, quality may not match the sample files. For best results, finetune
-    the model on your target voice. See finetune guide at:
-    https://github.com/pnnbao-ump/VieNeuTTS/blob/main/finetune.ipynb
-    """
-    # Male voice (South accent)
-    ref_audio_path = "./sample/Vĩnh (nam miền Nam).wav"
-    ref_text_path = "./sample/Vĩnh (nam miền Nam).txt"
-    
-    # Female voice (South accent) - uncomment to use
-    # ref_audio_path = "./sample/Đoan (nữ miền Nam).wav"
-    # ref_text_path = "./sample/Đoan (nữ miền Nam).txt"
-
-    ref_text_raw = open(ref_text_path, "r", encoding="utf-8").read()
-    
-    if not ref_audio_path or not ref_text_raw:
-        print("No reference audio or text provided.")
-        return None
-
-    # Initialize VieNeuTTS-1000h
-    tts = VieNeuTTS(
-        backbone_repo=backbone,
-        backbone_device=device,
-        codec_repo=codec,
-        codec_device=device
-    )
-
-    print("Encoding reference audio...")
-    ref_codes = tts.encode_reference(ref_audio_path)
-
-    # Generate speech for all input texts
-    for i, text in enumerate(input_texts, 1):
-        print(f"Generating audio {i}/{len(input_texts)}: {text[:50]}...")
-        wav = tts.infer(text, ref_codes, ref_text_raw)
-        output_path = os.path.join(output_dir, f"output_{i}.wav")
-        sf.write(output_path, wav, 24000)
-        print(f"✓ Saved to {output_path}")
-
-if __name__ == "__main__":
-    main()
-```
-
-### CLI example (`main.py`)
-
-```bash
-uv run main.py
-```
-
-This script runs several normalized sentences using the bundled sample voice and writes `output_*.wav` files under `output_audio/`.
-
 ### Gradio web demo
-[<img width="600" height="595" alt="VieNeu-TTS" src="https://github.com/user-attachments/assets/01f3016c-8b59-4a48-bc0e-c2248c22cec5" />](https://github.com/user-attachments/assets/01f3016c-8b59-4a48-bc0e-c2248c22cec5)
 
 ```bash
 uv run gradio_app.py
@@ -254,66 +200,39 @@ uv run gradio_app.py
 
 Then open `http://127.0.0.1:7860` to:
 
+- Choose from multiple model variants (PyTorch, GGUF Q4/Q8)
 - Pick one of ten reference voices (5 male, 5 female; North and South accents)
 - Upload your own reference audio + transcript
-- Enter up to 250 characters per request (recommended)
+- Enter text up to 3000 characters (with chunking support)
 - Preview or download the synthesized audio
 
-### Long-text helper
+### Basic Python usage
 
-`examples/infer_long_text.py` chunks long passages into ≤256-character segments (prefers sentence boundaries) and synthesizes them sequentially.
+```python
+from vieneu_tts import VieNeuTTS
+import soundfile as sf
 
-```bash
-python -m examples.infer_long_text.py \
-  --text-file examples/sample_long_text.txt \
-  --ref-audio sample/Vĩnh\ \(nam\ miền\ Nam\).wav \
-  --ref-text sample/Vĩnh\ \(nam\ miền\ Nam\).txt \
-  --output output_audio/sample_long_text.wav
+# Initialize with GGUF Q4 model for CPU
+tts = VieNeuTTS(
+    backbone_repo="pnnbao-ump/VieNeu-TTS-q4-gguf",
+    backbone_device="cpu",
+    codec_repo="neuphonic/neucodec-onnx-decoder",
+    codec_device="cpu"
+)
+
+# Load reference (using pre-encoded codes for ONNX codec)
+import torch
+ref_codes = torch.load("./sample/Vĩnh (nam miền Nam).pt", map_location="cpu")
+with open("./sample/Vĩnh (nam miền Nam).txt", "r", encoding="utf-8") as f:
+    ref_text = f.read()
+
+# Generate speech
+text = "Xin chào, đây là một ví dụ về tổng hợp giọng nói tiếng Việt."
+wav = tts.infer(text, ref_codes, ref_text)
+
+# Save audio
+sf.write("output.wav", wav, 24000)
 ```
-
-[🎵 Listen to sample (MP3)](https://github.com/user-attachments/files/23436562/longtext.mp3)
-
-Use `--text "raw paragraph here"` to infer without creating a file.
-
----
-
-## 🔈 Reference Voices (`sample/`)
-
-| File                    | Gender | Accent | Description        |
-|-------------------------|--------|--------|--------------------|
-| Bình (nam miền Bắc)     | Male   | North  | Male voice, North accent |
-| Tuyên (nam miền Bắc)    | Male   | North  | Male voice, North accent |
-| Nguyên (nam miền Nam)   | Male   | South  | Male voice, South accent |
-| Sơn (nam miền Nam)      | Male   | South  | Male voice, South accent |
-| Vĩnh (nam miền Nam)     | Male   | South  | Male voice, South accent |
-| Hương (nữ miền Bắc)     | Female | North  | Female voice, North accent |
-| Ly (nữ miền Bắc)        | Female | North  | Female voice, North accent |
-| Ngọc (nữ miền Bắc)      | Female | North  | Female voice, North accent |
-| Đoan (nữ miền Nam)      | Female | South  | Female voice, South accent |
-| Dung (nữ miền Nam)      | Female | South  | Female voice, South accent |
-
-Each reference voice includes both a `.wav` audio file and a matching `.txt` transcript file.
-
----
-
-## ✅ Best Practices & Limits
-
-- Keep each inference request ≤250 characters to stay within the 2 048-token context window (reference speech tokens also consume context).
-- Normalize both the target text and the reference transcript before inference (built-in scripts already do this).
-- Trim reference audio to ~3–5 seconds for faster processing and consistent quality.
-- For long articles, split by paragraph/sentence and stitch the outputs – use `examples/infer_long_text.py`.
-- Always obtain consent before cloning someone’s voice.
-
----
-
-## ⚠️ Troubleshooting
-
-| Issue | Likely cause | How to fix |
-|-------|--------------|------------|
-| `ValueError: Could not find libespeak...` | eSpeak NG is missing or the path is incorrect | Install eSpeak NG and set `PHONEMIZER_ESPEAK_LIBRARY` if required |
-| `401 Unauthorized` when downloading `facebook/w2v-bert-2.0` | Invalid or stale Hugging Face token in the environment | Run `huggingface-cli login --token …` or remove `HF_TOKEN` to use anonymous access |
-| `CUDA out of memory` | GPU VRAM is insufficient | Switch to CPU (`backbone_device="cpu"` & `codec_device="cpu"`) or use a quantized checkpoint |
-| `No valid speech tokens found` | Prompt too long, empty text, or poor reference clip | Shorten the input, double-check normalization, or pick another reference sample |
 
 ---
 
@@ -386,20 +305,6 @@ This project builds upon [NeuTTS Air](https://huggingface.co/neuphonic/neutts-ai
 ---
 
 **Made with ❤️ for the Vietnamese TTS community**
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -1,0 +1,87 @@
+# VieNeu-TTS Docker Image with GPU Support
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=${CUDA_HOME}/bin:${PATH} \
+    LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH} \
+    HF_HOME=/root/.cache/huggingface \
+    PHONEMIZER_ESPEAK_LIBRARY=/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+    python3-pip \
+    espeak-ng \
+    libespeak-ng1 \
+    git \
+    curl \
+    wget \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure python default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies with PyTorch CUDA index
+RUN python3.12 -m pip install --no-cache-dir --upgrade pip && \
+    python3.12 -m pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
+
+# Install LMDeploy for GPU optimization
+RUN python3.12 -m pip install --no-cache-dir lmdeploy
+
+# Install llama-cpp-python for GGUF support (build from source with CUDA)
+# Set environment variables for CUDA compilation
+# RTX 3060 uses compute capability 8.6, also include common architectures
+ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90"
+ENV FORCE_CMAKE=1
+ENV CUDACXX=/usr/local/cuda/bin/nvcc
+# Add CUDA stub library to linker path for build time
+RUN ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1 && \
+    echo "/usr/local/cuda/lib64/stubs" > /etc/ld.so.conf.d/cuda-stubs.conf && \
+    ldconfig && \
+    python3.12 -m pip install --no-cache-dir llama-cpp-python --verbose && \
+    rm /usr/local/cuda/lib64/stubs/libcuda.so.1 && \
+    ldconfig
+
+# Copy application code
+COPY . .
+
+# Create directories for models and samples
+RUN mkdir -p /app/models /app/sample /app/output_audio
+
+# Expose API port
+EXPOSE 8000
+
+# Environment variables for configuration
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8000
+ENV MODEL_TYPE=pytorch
+ENV DEVICE=cuda
+ENV BACKBONE_REPO=pnnbao-ump/VieNeu-TTS
+ENV CODEC_REPO=neuphonic/neucodec
+ENV MAX_BATCH_SIZE=8
+ENV ENABLE_TRITON=true
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+# Start API service
+CMD ["python3", "api_server.py"]
