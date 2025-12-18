@@ -17,12 +17,13 @@ import numpy as np
 import torch
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from vieneu_tts import VieNeuTTS
+from utils.core_utils import split_text_into_chunks
 
 # Configure logging
 logging.basicConfig(
@@ -291,33 +292,72 @@ def adjust_speed(audio: np.ndarray, speed: float, sample_rate: int = 24000) -> n
 
 
 async def generate_audio_stream(text: str, ref_codes: np.ndarray, ref_text: str, speed: float = 1.0):
-    """Generate audio stream"""
+    """Generate audio stream in raw PCM format (16-bit signed integer) with automatic text chunking for long text"""
     if tts_model is None:
         raise HTTPException(status_code=503, detail="TTS model not loaded")
-    
+
     # Check if streaming is supported
     if not hasattr(tts_model, 'infer_stream'):
         raise HTTPException(status_code=400, detail="Streaming not supported by current model")
-    
+
     sample_rate = 24000
-    
-    for audio_chunk in tts_model.infer_stream(text, ref_codes, ref_text):
-        if audio_chunk is None or len(audio_chunk) == 0:
-            continue
-        
-        # Apply speed adjustment
-        if speed != 1.0:
-            audio_chunk = adjust_speed(audio_chunk, speed, sample_rate)
-        
-        # Convert to WAV bytes
-        buffer = io.BytesIO()
-        sf.write(buffer, audio_chunk, sample_rate, format='WAV')
-        buffer.seek(0)
-        
-        yield buffer.read()
-        
-        # Reduce delay for better responsiveness
-        await asyncio.sleep(0.001)
+    max_chars = 200  # Maximum characters per chunk for stable streaming
+
+    # Split long text into chunks if needed
+    import re
+    text = text.strip()
+
+    if len(text) > max_chars:
+        # Split by sentence boundaries
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        chunks = []
+        current_chunk = ""
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            # If adding this sentence exceeds max_chars, save current chunk
+            if current_chunk and len(current_chunk) + len(sentence) + 1 > max_chars:
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        print(f"📝 Long text detected ({len(text)} chars), split into {len(chunks)} chunks for streaming")
+    else:
+        chunks = [text]
+
+    # Stream each chunk
+    for chunk_idx, chunk_text in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            print(f"🎤 Streaming chunk {chunk_idx}/{len(chunks)}: '{chunk_text[:50]}...'")
+
+        for audio_chunk in tts_model.infer_stream(chunk_text, ref_codes, ref_text):
+            if audio_chunk is None or len(audio_chunk) == 0:
+                continue
+
+            # Apply speed adjustment
+            if speed != 1.0:
+                audio_chunk = adjust_speed(audio_chunk, speed, sample_rate)
+
+            # Convert float32 audio to int16 PCM format
+            # Ensure audio is in range [-1, 1]
+            audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
+
+            # Convert to 16-bit PCM (little-endian for compatibility)
+            pcm_data = (audio_chunk * 32767).astype('<i2')  # '<i2' = little-endian 16-bit signed integer
+
+            # Yield raw PCM bytes
+            yield pcm_data.tobytes()
+
+            # Reduce delay for better responsiveness
+            await asyncio.sleep(0.001)
 
 def warmup_model():
     """Warmup the model with all available voices"""
@@ -529,34 +569,24 @@ async def synthesize(request: TTSRequest):
                 detail="Must provide either: ref_audio_base64 + ref_text, user_id + voice_name, or voice_name"
             )
 
-        # For streaming, create a unique stream URL
-        stream_id = f"{request_id}_{int(time.time())}"
-        stream_url = f"/stream/{stream_id}"
-
+        # Return streaming audio directly
         prep_time = time.time() - request_start
         print(f"🌊 [{request_id}] Streaming prep: {prep_time:.3f}s")
 
-        # Store stream generator for later access
-        if not hasattr(app.state, 'active_streams'):
-            app.state.active_streams = {}
+        # Encode voice name safely for headers (ASCII only)
+        safe_voice_name = (request.voice_name or "unknown").encode('ascii', 'ignore').decode('ascii') if request.voice_name else "unknown"
 
-        app.state.active_streams[stream_id] = {
-            'generator': generate_audio_stream(request.text, ref_codes, ref_text_final, request.speed),
-            'created_at': time.time()
-        }
-
-        # Create full stream URL
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
-        full_stream_url = f"{base_url}/stream/{stream_id}"
-
-        return JSONResponse({
-            "success": True,
-            "audio_url": full_stream_url,
-            "stream_id": stream_id,
-            "format": "wav",
-            "text": request.text,
-            "voice_name": request.voice_name
-        })
+        return StreamingResponse(
+            generate_audio_stream(request.text, ref_codes, ref_text_final, request.speed),
+            media_type="audio/pcm",
+            headers={
+                "X-Sample-Rate": "24000",
+                "X-Channels": "1",
+                "X-Bit-Depth": "16",
+                "X-Voice-Name": safe_voice_name,
+                "Content-Disposition": f'inline; filename="{request_id}_stream.pcm"'
+            }
+        )
 
     # Determine reference source
     ref_source_start = time.time()
@@ -610,43 +640,80 @@ async def synthesize(request: TTSRequest):
     # Generate speech
     inference_start = time.time()
     try:
-        audio = tts_model.infer(request.text, ref_codes, ref_text_final)
+        # Handle long text by chunking (similar to streaming mode)
+        import re
+        text = request.text.strip()
+        max_chars = 200
+
+        if len(text) > max_chars:
+            # Split by sentence boundaries
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            chunks = []
+            current_chunk = ""
+
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+
+                if current_chunk and len(current_chunk) + len(sentence) + 1 > max_chars:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = sentence
+                else:
+                    current_chunk = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+
+            print(f"📝 [{request_id}] Long text detected ({len(text)} chars), split into {len(chunks)} chunks for non-streaming")
+
+            # Generate audio for each chunk and concatenate
+            audio_segments = []
+            for chunk_idx, chunk_text in enumerate(chunks, 1):
+                print(f"🎤 [{request_id}] Processing chunk {chunk_idx}/{len(chunks)}")
+                chunk_audio = tts_model.infer(chunk_text, ref_codes, ref_text_final)
+                audio_segments.append(chunk_audio)
+
+            # Concatenate all audio segments
+            audio = np.concatenate(audio_segments)
+        else:
+            # Short text, process normally
+            audio = tts_model.infer(text, ref_codes, ref_text_final)
+
         inference_time = time.time() - inference_start
 
         # Apply speed adjustment
         if request.speed != 1.0:
             audio = adjust_speed(audio, request.speed)
 
-        # Save audio to file
-        os.makedirs("./output_audio", exist_ok=True)
-        audio_filename = f"{request_id}_{int(time.time())}.wav"
-        audio_filepath = os.path.join("./output_audio", audio_filename)
-
-        sf.write(audio_filepath, audio, 24000)
-
-        # Create full file URL
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
-        audio_url = f"{base_url}/audio/{audio_filename}"
+        # Convert to WAV format
+        sample_rate = 24000
+        buffer = io.BytesIO()
+        sf.write(buffer, audio, sample_rate, format='WAV')
+        buffer.seek(0)
+        audio_bytes = buffer.read()
 
         total_time = time.time() - request_start
 
         # Performance logging
         print(f"⏱️  [{request_id}] Timing - Ref: {ref_source_time:.3f}s | Inference: {inference_time:.3f}s | Total: {total_time:.3f}s")
-        print(f"📊 [{request_id}] Audio: {len(audio)} samples | Voice: {request.voice_name} | File: {audio_filename}")
+        print(f"📊 [{request_id}] Audio: {len(audio)} samples | Voice: {request.voice_name}")
 
-        return JSONResponse({
-            "success": True,
-            "audio_url": audio_url,
-            "sample_rate": 24000,
-            "format": "wav",
-            "text": request.text,
-            "voice_name": request.voice_name,
-            "timing": {
-                "total_time": round(total_time, 3),
-                "inference_time": round(inference_time, 3),
-                "ref_prep_time": round(ref_source_time, 3)
+        # Encode voice name safely for headers (ASCII only)
+        safe_voice_name = (request.voice_name or "unknown").encode('ascii', 'ignore').decode('ascii') if request.voice_name else "unknown"
+
+        return Response(
+            content=audio_bytes,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'inline; filename="{request_id}.wav"',
+                "X-Sample-Rate": "24000",
+                "X-Channels": "1",
+                "X-Voice-Name": safe_voice_name,
+                "X-Total-Time": str(round(total_time, 3)),
+                "X-Inference-Time": str(round(inference_time, 3))
             }
-        })
+        )
 
     except Exception as e:
         error_time = time.time() - request_start
@@ -702,24 +769,26 @@ async def batch_synthesize(request: BatchSynthesizeRequest):
 
         final_audio = np.concatenate(combined_audio[:-1])  # Remove last silence
 
-        # Convert to WAV bytes
+        # Convert to WAV format
         buffer = io.BytesIO()
         sf.write(buffer, final_audio, sample_rate, format='WAV')
         buffer.seek(0)
         audio_bytes = buffer.read()
 
-        # Encode to base64
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+        # Encode voice name safely for headers (ASCII only)
+        safe_voice_name = (request.voice_name or "unknown").encode('ascii', 'ignore').decode('ascii') if request.voice_name else "unknown"
 
-        return JSONResponse({
-            "status": "success",
-            "audio_base64": audio_base64,
-            "sample_rate": sample_rate,
-            "format": "wav",
-            "texts": request.texts,
-            "voice_name": request.voice_name,
-            "num_texts": len(request.texts)
-        })
+        return Response(
+            content=audio_bytes,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'inline; filename="batch_{safe_voice_name}.wav"',
+                "X-Sample-Rate": str(sample_rate),
+                "X-Channels": "1",
+                "X-Voice-Name": safe_voice_name,
+                "X-Num-Texts": str(len(request.texts))
+            }
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch synthesis failed: {str(e)}")
